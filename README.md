@@ -17,7 +17,7 @@ source .venv/bin/activate  # Linux/macOS
 
 ### Install dependencies
 ```bash
-uv pip install torch transformers datasets accelerate librosa soundfile scikit-learn numpy pandas tqdm ffmpeg-python
+uv pip install torch transformers datasets accelerate librosa soundfile scikit-learn numpy pandas tqdm ffmpeg-python pydub
 ```
 
 ### Install system ffmpeg
