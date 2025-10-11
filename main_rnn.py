@@ -1,3 +1,4 @@
+import json
 import os
 
 import torch
@@ -8,8 +9,9 @@ from src.training import get_dataloaders, train_rnn_text_classifier
 
 if __name__ == "__main__":
     # Parameters
-    csv_path = os.path.join(
-        "data", "labeled_text_data.csv"
+
+    json_path = os.path.join(
+        "data", "labeled_text_data.json"
     )  # Path to the labeled dataset
     batch_size = 64
     epochs = 30
@@ -18,11 +20,13 @@ if __name__ == "__main__":
     embedding_dim = 128
     hidden_dim = 256
     num_classes = 3  # Adjust based on your dataset
-    train = False  # Set to False to skip training and only evaluate
+    train = True  # Set to False to skip training and only evaluate
     # Device configuration: use GPU if available
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     # Load data
-    dataloader_train, dataloader_test = get_dataloaders(csv_path, batch_size=batch_size)
+    dataloader_train, dataloader_test = get_dataloaders(
+        json_path, batch_size=batch_size
+    )
     if train:
         # Initialize model
         model = RNNClassifier(vocab_size, embedding_dim, hidden_dim, num_classes)
@@ -42,7 +46,9 @@ if __name__ == "__main__":
             vocab_size, embedding_dim, hidden_dim, num_classes
         )
         # Load with map_location to ensure correct device
-        state = torch.load(os.path.join("models", "rnn_text_classifier.pth"), map_location=device)
+        state = torch.load(
+            os.path.join("models", "rnn_text_classifier.pth"), map_location=device
+        )
         trained_model.load_state_dict(state)
         trained_model = trained_model.to(device)
     trained_model.eval()  # Set to evaluation mode

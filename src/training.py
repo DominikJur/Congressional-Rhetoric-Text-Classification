@@ -16,10 +16,11 @@ def preprocess_text(text):
     # TODO Insert preprocessing here
     return text
 
+
 def get_dataloaders(
-    csv_path, batch_size=64, tokenizer_name="bert-base-uncased", test_split=0.2
+    json_path, batch_size=64, tokenizer_name="bert-base-uncased", test_split=0.2
 ):
-    df = pd.read_csv(csv_path)
+    df = pd.read_json(json_path, orient="index")  # read the labeled dataset
     texts = df["transcription"].tolist()
     texts = [preprocess_text(text) for text in texts]
     labels_list = df["label"].tolist()

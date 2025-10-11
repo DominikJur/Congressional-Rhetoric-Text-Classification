@@ -1,3 +1,4 @@
+import json
 import os  # file handling
 import warnings
 
@@ -10,7 +11,7 @@ from src.constants import classes_dict
 
 whisper = pipeline(
     "automatic-speech-recognition",
-    model="openai/whisper-base",  # load whisper model
+    model="openai/whisper-tiny",  # load whisper model
     device=0 if torch.cuda.is_available() else -1,
 )  # Use GPU if available
 
@@ -30,7 +31,7 @@ def transcribe_video(file_path):
         audio = whisper(
             audio_path, return_timestamps=True
         )  # transcribe audio ( Timestamps needed cuz it breaks without them for >30 sec audio)
-        return audio["text"]
+        return audio
 
     except Exception as e:
         print(f"Error transcribing {audio_path}: {e}")
@@ -66,7 +67,7 @@ def transcribe_every_video(
 def create_labeled_dataset(
     transcriptions,
     labels_file=os.path.join("data", "labels.csv"),
-    output_file=os.path.join("data", "labeled_text_data.csv"),
+    output_file=os.path.join("data", "labeled_text_data.json"),
 ):
 
     # function to create labeled dataset
@@ -97,18 +98,21 @@ def create_labeled_dataset(
             )
 
     labels_dict = pd.Series(labels_df.label.values, index=labels_df.filename).to_dict()
-    transcriptions = [
-        (
-            video,
-            transcription,
+    transcriptions = {
+        video: (
+            transcription["text"],
+            transcription["chunks"],
             classes_dict.get(labels_dict.get(os.path.basename(video), "unknown")),
         )  # unknown if label not found
         for video, transcription in transcriptions.items()
-    ]  # add labels to transcriptions
-    df = pd.DataFrame(
-        transcriptions, columns=["filename", "transcription", "label"]
+    }  # add labels to transcriptions
+    df = pd.DataFrame.from_dict(
+        transcriptions,
+        orient="index",
+        columns=["transcription", "timestamped_chunks", "label"],
     )  # create DataFrame
-    df.to_csv(output_file, index=False)  # write DataFrame to CSV file
+    df.to_json(output_file, orient="index")  # write DataFrame to JSON file
+    print(df.head())
 
 
 if __name__ == "__main__":

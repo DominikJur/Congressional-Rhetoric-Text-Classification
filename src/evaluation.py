@@ -4,7 +4,7 @@ from typing import Dict
 import numpy as np
 import torch
 # Import necessary metrics from sklearn for evaluation
-from sklearn.metrics import (f1_score, matthews_corrcoef, confusion_matrix,
+from sklearn.metrics import (confusion_matrix, f1_score, matthews_corrcoef,
                              multilabel_confusion_matrix, precision_score,
                              recall_score)
 
