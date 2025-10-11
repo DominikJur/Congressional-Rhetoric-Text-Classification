@@ -12,11 +12,16 @@ from src.models import \
     RNNClassifier  # Import the RNNClassifier class from models.py
 
 
+def preprocess_text(text):
+    # TODO Insert preprocessing here
+    return text
+
 def get_dataloaders(
     csv_path, batch_size=64, tokenizer_name="bert-base-uncased", test_split=0.2
 ):
     df = pd.read_csv(csv_path)
     texts = df["transcription"].tolist()
+    texts = [preprocess_text(text) for text in texts]
     labels_list = df["label"].tolist()
 
     # Load tokenizer
@@ -45,6 +50,10 @@ def train_rnn_text_classifier(model, dataloader_train, epochs=100, learning_rate
     # make sure the model is an instance of RNNClassifier
     assert isinstance(model, RNNClassifier)
 
+    # device handling: use GPU if available
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    model = model.to(device)
+
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()  # suitable for multi-class classification
     optimizer = optim.Adam(
@@ -57,6 +66,10 @@ def train_rnn_text_classifier(model, dataloader_train, epochs=100, learning_rate
         for inputs, targets in tqdm.tqdm(
             dataloader_train, desc=f"Training Epoch {epoch+1}/{epochs}"
         ):
+            # Move batch tensors to the same device as the model
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+
             optimizer.zero_grad()  # zero the parameter gradients
             outputs = model(inputs)  # forward pass
             loss = criterion(outputs, targets)  # compute loss

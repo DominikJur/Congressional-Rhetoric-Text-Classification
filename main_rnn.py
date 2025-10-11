@@ -19,19 +19,21 @@ if __name__ == "__main__":
     hidden_dim = 256
     num_classes = 3  # Adjust based on your dataset
     train = False  # Set to False to skip training and only evaluate
+    # Device configuration: use GPU if available
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     # Load data
     dataloader_train, dataloader_test = get_dataloaders(csv_path, batch_size=batch_size)
     if train:
         # Initialize model
         model = RNNClassifier(vocab_size, embedding_dim, hidden_dim, num_classes)
-
-        # Train model
+        # Train model (the trainer will move the model to device)
         trained_model = train_rnn_text_classifier(
             model, dataloader_train, epochs=epochs, learning_rate=learning_rate
         )
-        # Save the trained model
+        # Move model to CPU before saving state dict to avoid CUDA tensors in checkpoint
+        trained_model_cpu = trained_model.to(torch.device("cpu"))
         torch.save(
-            trained_model.state_dict(),
+            trained_model_cpu.state_dict(),
             os.path.join("models", "rnn_text_classifier.pth"),
         )
     else:
@@ -39,13 +41,14 @@ if __name__ == "__main__":
         trained_model = RNNClassifier(
             vocab_size, embedding_dim, hidden_dim, num_classes
         )
-        trained_model.load_state_dict(
-            torch.load(os.path.join("models", "rnn_text_classifier.pth"))
-        )
+        # Load with map_location to ensure correct device
+        state = torch.load(os.path.join("models", "rnn_text_classifier.pth"), map_location=device)
+        trained_model.load_state_dict(state)
+        trained_model = trained_model.to(device)
     trained_model.eval()  # Set to evaluation mode
     # Evaluate model
     metrics = evaluate_classification(dataloader_test, trained_model)
 
     print("Evaluation Metrics:")
     for metric, value in metrics.items():
-        print(f"{metric}: {value:.4f}")
+        print(f"{metric}: {value}")

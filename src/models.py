@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 
@@ -9,13 +10,13 @@ class RNNClassifier(nn.Module):
         super(RNNClassifier, self).__init__()
         self.embedding = nn.Embedding(vocab_size, embedding_dim)  # embedding layer
         self.lstm1 = nn.LSTM(
-            embedding_dim, hidden_dim, batch_first=True, bidirectional=True
+            embedding_dim, hidden_dim, batch_first=True, bidirectional=False
         )  # first LSTM layer
         self.lstm2 = nn.LSTM(
-            hidden_dim * 2, hidden_dim, batch_first=True, bidirectional=True
+            hidden_dim, hidden_dim, batch_first=True, bidirectional=False
         )  # second LSTM layer
         self.dropout = nn.Dropout(dropout)  # dropout layer
-        self.fc = nn.Linear(hidden_dim * 2, num_classes)  # fully connected layer
+        self.fc = nn.Linear(hidden_dim, num_classes)  # fully connected layer
         self.softmax = nn.Softmax(dim=1)  # softmax layer
 
     def forward(self, x):  # forward pass

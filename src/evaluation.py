@@ -4,7 +4,7 @@ from typing import Dict
 import numpy as np
 import torch
 # Import necessary metrics from sklearn for evaluation
-from sklearn.metrics import (f1_score, matthews_corrcoef,
+from sklearn.metrics import (f1_score, matthews_corrcoef, confusion_matrix,
                              multilabel_confusion_matrix, precision_score,
                              recall_score)
 
@@ -17,10 +17,21 @@ class ClassificationBenchmark:
         self.pred = []
         self.pred_proba = []
         model.eval()
+        # Determine device from model parameters; default to cpu
+        try:
+            device = next(model.parameters()).device
+        except StopIteration:
+            device = torch.device("cpu")
+
         with torch.no_grad():
             for X_batch, y_batch in dataloader:
+                # Move inputs and targets to the model device
+                X_batch = X_batch.to(device)
+                y_batch = y_batch.to(device)
+
                 logits = model(X_batch)
 
+                # Move tensors to CPU and detach before converting to numpy
                 self.target.extend(y_batch.detach().cpu().numpy())
                 self.pred.extend(torch.argmax(logits, dim=1).detach().cpu().numpy())
                 self.pred_proba.extend(logits.detach().cpu().numpy())
@@ -68,6 +79,10 @@ class ClassificationBenchmark:
         # Compute Matthews Correlation Coefficient (MCC).
         return matthews_corrcoef(self.target, self.pred)
 
+    def confusion_matrix(self):
+        # Compute confusion matrix.
+        return confusion_matrix(self.target, self.pred)
+
 
 def evaluate_classification(dataloader, model) -> Dict[str, float]:
     # Evaluate a classification model using the ClassificationBenchmark class.
@@ -81,4 +96,5 @@ def evaluate_classification(dataloader, model) -> Dict[str, float]:
         "informedness": bench.informedness(),
         "markedness": bench.markedness(),
         "matthews_corrcoef": bench.matthews(),
+        "confusion_matrix": bench.confusion_matrix(),  # Convert to list for JSON serialization
     }
