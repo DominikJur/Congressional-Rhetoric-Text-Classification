@@ -1,0 +1,10 @@
+transformers>=4.0.0
+pandas
+scikit-learn
+tqdm
+moviepy
+imageio-ffmpeg
+numpy
+librosa
+soundfile
+python-dotenv

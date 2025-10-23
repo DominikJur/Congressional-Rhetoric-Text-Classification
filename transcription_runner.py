@@ -4,7 +4,16 @@ import warnings
 
 import pandas as pd  # data manipulation
 import torch  # Deep learning framework
-from pydub import AudioSegment
+_AUDIO_BACKEND = None
+try:
+    from moviepy.editor import VideoFileClip
+    _AUDIO_BACKEND = "moviepy"
+except Exception:
+    try:
+        from pydub import AudioSegment
+        _AUDIO_BACKEND = "pydub"
+    except Exception:
+        _AUDIO_BACKEND = None
 from transformers import pipeline  # ML models
 
 from src.constants import classes_dict
@@ -20,8 +29,22 @@ def transcribe_video(file_path):
     # First, extract the audio from the video file and save it as a WAV file
     audio_path = os.path.splitext(file_path)[0] + ".wav"
     try:
-        video_clip = AudioSegment.from_file(file_path, format="mp4")  # read video file
-        video_clip.export(audio_path, format="wav")  # convert to WAV
+        if _AUDIO_BACKEND == "moviepy":
+            # Use moviepy to extract audio; moviepy uses imageio-ffmpeg which can provide a bundled ffmpeg
+            clip = VideoFileClip(file_path)
+            # write_audiofile will create a WAV; specify codec and fps to be safe
+            clip.audio.write_audiofile(audio_path, fps=16000, codec="pcm_s16le")
+            clip.reader.close()
+            if clip.audio:
+                clip.audio.reader.close_proc()
+        elif _AUDIO_BACKEND == "pydub":
+            # Fallback to pydub if moviepy is not available and pydub is installed
+            video_clip = AudioSegment.from_file(file_path, format="mp4")  # read video file
+            video_clip.export(audio_path, format="wav")  # convert to WAV
+        else:
+            raise RuntimeError(
+                "No audio backend available: install 'moviepy' (preferred) or 'pydub' and system ffmpeg."
+            )
     except Exception as e:
         print(f"Error converting {file_path}: {e}")
         return None  # Skip this file if conversion fails

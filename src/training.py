@@ -30,16 +30,16 @@ def get_dataloaders(
 
     # Tokenize and pad sequences
     encoded = tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
-    input_ids = encoded["input_ids"]
+    input_tokens = encoded["input_ids"]
     labels = torch.tensor(labels_list, dtype=torch.long)
 
     # Split into train and test sets
-    input_ids_train, input_ids_test, labels_train, labels_test = train_test_split(
-        input_ids, labels, test_size=test_split, random_state=42
+    input_tokens_train, input_tokens_test, labels_train, labels_test = train_test_split(
+        input_tokens, labels, test_size=test_split, random_state=42
     )
     # Create datasets
-    dataset_train = TensorDataset(input_ids_train, labels_train)
-    dataset_test = TensorDataset(input_ids_test, labels_test)
+    dataset_train = TensorDataset(input_tokens_train, labels_train)
+    dataset_test = TensorDataset(input_tokens_test, labels_test)
     # Create dataloaders
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
     dataloader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False)
