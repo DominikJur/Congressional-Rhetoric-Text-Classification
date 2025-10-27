@@ -5,6 +5,7 @@ import warnings
 import pandas as pd  # data manipulation
 import torch  # Deep learning framework
 from pydub import AudioSegment
+
 from transformers import pipeline  # ML models
 
 from src.constants import classes_dict
@@ -43,7 +44,7 @@ def transcribe_video(file_path):
 
 
 def transcribe_every_video(
-    dir_name="data",
+    dir_name=os.path.join("data", "raw_data"),
 ):  # function to transcribe a list of video files
     video_files = os.listdir(
         dir_name
@@ -98,20 +99,42 @@ def create_labeled_dataset(
             )
 
     labels_dict = pd.Series(labels_df.label.values, index=labels_df.filename).to_dict()
+    # transcriptions = {
+    #     video: (
+    #         transcription["text"],
+    #         transcription["chunks"],
+    #         classes_dict.get(labels_dict.get(os.path.basename(video), "unknown")),
+    #     )  # unknown if label not found
+    #     for video, transcription in transcriptions.items()
+    # } 
+
     transcriptions = {
         video: (
-            transcription["text"],
-            transcription["chunks"],
+            (
+                transcription.get("text", "")
+                if isinstance(transcription, dict)
+                else str(transcription)
+            ),
+            (
+                transcription.get("chunks", [])
+                if isinstance(transcription, dict)
+                else []
+            ),
             classes_dict.get(labels_dict.get(os.path.basename(video), "unknown")),
-        )  # unknown if label not found
+        )
         for video, transcription in transcriptions.items()
-    }  # add labels to transcriptions
+        if transcription  # skip None or failed transcriptions
+    }
+    
+    # add labels to transcriptions
     df = pd.DataFrame.from_dict(
         transcriptions,
         orient="index",
         columns=["transcription", "timestamped_chunks", "label"],
     )  # create DataFrame
     df.to_json(output_file, orient="index")  # write DataFrame to JSON file
+    df.to_json(output_file, orient="index")  # write DataFrame to JSON file
+    print("Saved labeled dataset with", len(df), "entries to", output_file)
     print(df.head())
 
 
