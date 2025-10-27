@@ -98,14 +98,32 @@ def create_labeled_dataset(
             )
 
     labels_dict = pd.Series(labels_df.label.values, index=labels_df.filename).to_dict()
+    # transcriptions = {
+    #     video: (
+    #         transcription["text"],
+    #         transcription["chunks"],
+    #         classes_dict.get(labels_dict.get(os.path.basename(video), "unknown")),
+    #     )  # unknown if label not found
+    #     for video, transcription in transcriptions.items()
+    # }  
     transcriptions = {
         video: (
-            transcription["text"],
-            transcription["chunks"],
+            (
+                transcription.get("text", "")
+                if isinstance(transcription, dict)
+                else str(transcription)
+            ),
+            (
+                transcription.get("chunks", [])
+                if isinstance(transcription, dict)
+                else []
+            ),
             classes_dict.get(labels_dict.get(os.path.basename(video), "unknown")),
-        )  # unknown if label not found
+        )
         for video, transcription in transcriptions.items()
-    }  # add labels to transcriptions
+        if transcription  # skip None or failed transcriptions
+    }
+    # add labels to transcriptions
     df = pd.DataFrame.from_dict(
         transcriptions,
         orient="index",
