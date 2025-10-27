@@ -6,38 +6,52 @@ import torch.nn as nn
 class RNNClassifier(nn.Module):
     def __init__(
         self, 
-        embedding_dim,  # This will be 300 (from GloVe)
+        weights_matrix,
         hidden_dim, 
-        weights_matrix,   # <-- NEW
-        pad_idx,          # <-- NEW
-        num_classes=3, 
-        dropout=0.3
+        num_classes,
+        pad_idx,
+        dropout=0.5,
+        rnn_layers=2,
+        bidirectional=True
     ):
         super(RNNClassifier, self).__init__()
         
-        # --- MODIFIED Embedding Layer ---
-        # Load the pre-trained weights into the embedding layer
+        vocab_size, embedding_dim = weights_matrix.shape
+        
+        self.hidden_dim = hidden_dim
+        self.rnn_layers = rnn_layers
+        self.num_directions = 2 if bidirectional else 1
+        
         self.embedding = nn.Embedding.from_pretrained(
-            weights_matrix,         # The weights we just loaded
-            freeze=False,           # Set to True to *not* fine-tune embeddings
-            padding_idx=pad_idx     # Tell the layer which token is for padding
+            weights_matrix, 
+            freeze=False,
+            padding_idx=pad_idx
         )
         
-        # The rest of your model is the same
-        self.lstm1 = nn.LSTM(
-            embedding_dim, hidden_dim, batch_first=True, bidirectional=False
+        self.lstm = nn.LSTM(
+            input_size=embedding_dim,
+            hidden_size=hidden_dim,
+            num_layers=rnn_layers,
+            batch_first=True,
+            bidirectional=bidirectional,
+            dropout=dropout if rnn_layers > 1 else 0
         )
-        self.lstm2 = nn.LSTM(
-            hidden_dim, hidden_dim, batch_first=True, bidirectional=False
-        )
+        
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(hidden_dim, num_classes)
+        self.fc = nn.Linear(hidden_dim * self.num_directions, num_classes)
 
     def forward(self, x):
-        x = self.embedding(x)
-        out, _ = self.lstm1(x)
-        out, _ = self.lstm2(out)
-        out = self.dropout(out)
-        deep_features = out[:, -1, :]  # Use the last time step
-        logits = self.fc(deep_features)
+        embedded = self.embedding(x)
+        
+        output, (hidden, cell) = self.lstm(embedded)
+
+        if self.num_directions == 2:
+            deep_features = torch.cat((hidden[-2], hidden[-1]), dim=1)
+        else:
+            deep_features = hidden[-1]
+            
+        dropped_features = self.dropout(deep_features)
+        
+        logits = self.fc(dropped_features)
+        
         return logits, deep_features

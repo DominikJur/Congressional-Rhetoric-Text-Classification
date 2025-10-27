@@ -98,7 +98,7 @@ def evaluate_classification(dataloader, model) -> Dict[str, float]:
         "accuracy": bench.accuracy(),
         "precision": bench.precision(),
         "recall": bench.recall(),
-        "F1": bench.F1(),
+        "f1": bench.F1(),
         "informedness": bench.informedness(),
         "markedness": bench.markedness(),
         "matthews_corrcoef": bench.matthews(),

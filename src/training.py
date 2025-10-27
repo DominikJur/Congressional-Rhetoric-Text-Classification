@@ -1,3 +1,4 @@
+import re
 import pandas as pd  # for data manipulation
 import torch  # Deep learning framework
 import torch.nn as nn  # for neural network modules
@@ -8,16 +9,43 @@ from sklearn.model_selection import train_test_split  # for splitting dataset
 from torch.utils.data import DataLoader, TensorDataset  # for creating data loaders
 import torchtext.vocab as vocab
 from torchtext.data.utils import get_tokenizer
+from plotly.subplots import make_subplots
 import numpy as np  # for numerical operations
 from collections import Counter  # for counting word frequencies
 
 from src.models import RNNClassifier  # Import the RNNClassifier class from models.py
-
+import plotly.express as px  # for visualizations
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 
 def preprocess_text(text):
-    # TODO Insert preprocessing here
-    return text
-
+    """
+    A proper text preprocessing function:
+    1. Lowercase
+    2. Remove punctuation and numbers
+    3. Remove stopwords
+    4. Apply lemmatization
+    """
+    import nltk
+    nltk.download('stopwords');
+    nltk.download('wordnet');
+    stop_words = set(stopwords.words("english"))
+    lemmatizer = WordNetLemmatizer()
+    if not isinstance(text, str):
+        return ""
+        
+    text = text.lower()
+    text = re.sub(r'[^a-z\s]', '', text)
+    
+    tokens = text.split()
+    
+    # --- CHANGED ---
+    # Apply lemmatization instead of stemming
+    processed_tokens = [
+        lemmatizer.lemmatize(word) for word in tokens if word not in stop_words
+    ]
+    
+    return " ".join(processed_tokens)
 
 def get_dataloaders(
     json_path, batch_size=64, test_split=0.2, embedding_dim=300
@@ -27,41 +55,29 @@ def get_dataloaders(
     texts = [preprocess_text(text) for text in texts]
     labels_list = df["label"].tolist()
 
-    # Load tokenizer
     tokenizer = get_tokenizer('basic_english')
     tokenized_texts = [tokenizer(text) for text in texts]
     
-    # Create a vocab object from our texts, adding <unk> (unknown) and <pad> tokens
     glove = vocab.GloVe(name='6B', dim=embedding_dim)
     
-    # --- START: CODE FOR OLD torchtext 0.6.0 ---
-    
-    # 1. Build a counter from the tokens
     counter = Counter()
     for tokens in tokenized_texts:
         counter.update(tokens)
     
-    # 2. Build vocab from the counter
-    # This is the old way to add special tokens
-    vocab_obj = vocab.Vocab(counter, specials=["<unk>", "<pad>"], min_freq=1)
-    
-    # 3. Set the unk_index manually (replaces set_default_index)
-    vocab_obj.unk_index = vocab_obj["<unk>"]
-    
+    vocab_obj = vocab.build_vocab_from_iterator(
+        tokenized_texts, 
+        specials=["<unk>", "<pad>"]
+    )
+    vocab_obj.set_default_index(vocab_obj["<unk>"])
     vocab_size = len(vocab_obj)
     pad_idx = vocab_obj["<pad>"]
     
-    # 4. Create weights matrix (uses .itos not .get_itos())
     weights_matrix = torch.zeros((vocab_size, embedding_dim))
-    for i, token in enumerate(vocab_obj.itos): # <-- Use .itos attribute
+    for i, token in enumerate(vocab_obj.get_itos()): # get_itos() returns list of tokens in vocab
         weights_matrix[i] = glove[token]
     
-    # 5. Convert texts to indices (uses .stoi not vocab())
-    text_indices = [
-        [vocab_obj.stoi.get(token, vocab_obj.unk_index) for token in t] 
-        for t in tokenized_texts
-    ]
-    # Convert ID lists to Tensors
+    text_indices = [vocab_obj(t) for t in tokenized_texts]
+    
     text_tensors = [torch.tensor(t, dtype=torch.long) for t in text_indices]
     
     input_tokens = nn.utils.rnn.pad_sequence(
@@ -96,6 +112,143 @@ def get_dataloaders(
 
     return dataloader_train, dataloader_test, minority_classes, vocab_size, weights_matrix, pad_idx
 
+def train_rnn_text_classifier_standard(
+    model,
+    dataloader_train,
+    epochs=100,
+    learning_rate=0.001,
+):
+    """
+    This function is used to train the RNN model using standard training procedure without any oversampling.
+    """
+    # make sure the model is an instance of RNNClassifier
+    assert isinstance(model, RNNClassifier)
+    # device handling: use GPU if available
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+    print(f"Using device: {device}")
+    model = model.to(device)
+
+    # Loss and optimizer
+    criterion = nn.CrossEntropyLoss()  # suitable for multi-class classification
+    embedding_params = model.embedding.parameters()
+    
+    # rest of the model's parameters
+    rnn_params = [
+        p for n, p in model.named_parameters() 
+        if "embedding" not in n and p.requires_grad
+    ]
+    optimizer = optim.AdamW(
+        [
+            {'params': rnn_params, 'lr': learning_rate}, # e.g., 0.001
+            {'params': embedding_params, 'lr': learning_rate / 20} # e.g., 0.00005
+        ],
+        weight_decay=0.01
+    ) # Adam optimizer, state of the art
+
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    model_loss_history = []
+
+    # Training loop
+    model.train()
+    for epoch in range(epochs):
+        total_model_loss = 0.0
+
+        for inputs, targets in tqdm.tqdm(
+            dataloader_train, desc=f"Training Epoch {epoch+1}/{epochs}"
+        ):
+            # Move batch tensors to the same device as the model
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+
+            optimizer.zero_grad()  # zero the parameter gradients
+            outputs, deep_features = model(inputs)  # forward pass
+            model_loss = criterion(outputs, targets)  # compute loss
+
+            model_loss_history.append(model_loss.item())
+
+            model_loss.backward()  # backward pass
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # gradient clipping
+            optimizer.step()  # update weights
+            
+            total_model_loss += model_loss.item()
+        # Print combined loss for the epoch
+        print(
+            f"Epoch {epoch+1}/{epochs}, "
+            f"Class Loss: {total_model_loss / len(dataloader_train):.4f}"
+        )
+        scheduler.step()  # update learning rate
+
+
+    plot_loss_curves(model_loss_history)
+
+    return model
+
+
+
+def plot_loss_curves(model_loss_history, oversample_loss_history=[]):
+    """
+    Plots the loss curves as two separate subplots (no shared y-axis).
+    Args:
+        model_loss_history: List of model loss values over training iterations.
+        oversample_loss_history: List of oversampling loss values over training iterations.
+    """
+    iterations = list(range(len(model_loss_history)))
+    if len(iterations) > 100:
+        iterations = iterations[::5]
+        model_loss_history = model_loss_history[::5]
+        oversample_loss_history = oversample_loss_history[::5]
+    if not oversample_loss_history:
+        fig = px.line(
+            x=iterations, y=model_loss_history,
+            labels={'x': 'Iteration', 'y': 'Loss'},
+        )
+        fig.update_xaxes(title_text="Iteration")
+        fig.update_yaxes(title_text="Loss")
+        
+    else:
+        import plotly.graph_objects as go
+
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_yaxes=False,
+            vertical_spacing=0.3,
+            subplot_titles=("Model Loss", "Oversampling Loss"),
+        )
+
+        fig.add_trace(
+            go.Scatter(x=iterations, y=model_loss_history, mode="lines", name="Model Loss"),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=iterations, y=oversample_loss_history, mode="lines", name="Oversampling Loss"
+            ),
+            row=2,
+            col=1,
+        )
+
+        fig.update_xaxes(title_text="Iteration", row=1, col=1)
+        fig.update_xaxes(title_text="Iteration", row=2, col=1)
+        fig.update_yaxes(title_text="Loss", row=1, col=1)
+        fig.update_yaxes(title_text="Loss", row=2, col=1)
+
+    fig.update_layout(title_text="Training Loss Curves", height=600, showlegend=False)
+    fig.show()
+    return fig
+
+"""
+Beware the code below, it might be scary.
+It implements the deep oversampling technique from the paper:
+'Deep Over-sampling Framework for Classifying Imbalanced Data'.
+We ended up not using it so you can safely ignore it.
+"""
+
+
+
+
 def train_rnn_text_classifier_with_deep_oversampling(
     model,
     dataloader_train,
@@ -115,20 +268,37 @@ def train_rnn_text_classifier_with_deep_oversampling(
         case 'deep_feature_SMOTE':
             oversampling = deep_feature_SMOTE
         case _:
-            raise ValueError(f"Unknown oversampling technique: {oversampling_technique}") 
-    
+            oversampling =  no_oversampling
     # make sure the model is an instance of RNNClassifier
     assert isinstance(model, RNNClassifier)
-
+    if dos_lambda == 0:
+        oversampling = no_oversampling
     # device handling: use GPU if available
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+    print(f"Using device: {device}")
     model = model.to(device)
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()  # suitable for multi-class classification
-    optimizer = optim.Adam(
-        model.parameters(), lr=learning_rate
-    )  # Adam optimizer, state of the art
+    embedding_params = model.embedding.parameters()
+    
+    # rest of the model's parameters
+    rnn_params = [
+        p for n, p in model.named_parameters() 
+        if "embedding" not in n and p.requires_grad
+    ]
+    optimizer = optim.AdamW(
+        [
+            {'params': rnn_params, 'lr': learning_rate}, # e.g., 0.001
+            {'params': embedding_params, 'lr': learning_rate / 20} # e.g., 0.00005
+        ],
+        weight_decay=0.01
+    ) # Adam optimizer, state of the art
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    model_loss_history = []
+    oversample_loss_history = []
+
 
     # Training loop
     model.train()
@@ -155,7 +325,11 @@ def train_rnn_text_classifier_with_deep_oversampling(
                 model_loss, deep_features, targets, minority_classes, k=dos_k, lambda_coeff=dos_lambda
             )
 
+            model_loss_history.append(model_loss.item())
+            oversample_loss_history.append(avg_oversample_loss.item())
+
             loss.backward()  # backward pass
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # gradient clipping
             optimizer.step()  # update weights
             
             total_model_loss += model_loss.item()
@@ -166,10 +340,12 @@ def train_rnn_text_classifier_with_deep_oversampling(
             f"Class Loss: {total_model_loss / len(dataloader_train):.4f}, "
             f"DOS Loss: {total_oversample_loss / len(dataloader_train):.4f}"
         )
+        scheduler.step()  # update learning rate
+
+
+    plot_loss_curves(model_loss_history, oversample_loss_history)
 
     return model
-
-
 
 
 def deep_feature_SMOTE(model_loss, deep_features, targets, minority_classes, k=5, lambda_coeff=0.5):
@@ -245,3 +421,10 @@ def deep_feature_SMOTE(model_loss, deep_features, targets, minority_classes, k=5
     loss = model_loss + lambda_coeff * avg_oversample_loss  # combined loss
     return loss, avg_oversample_loss
     
+def no_oversampling(model_loss, deep_features, targets, minority_classes, k=5, lambda_coeff=0.5):
+    """
+    No oversampling, returns the original model loss.
+    """
+    device = deep_features.device
+    avg_oversample_loss = torch.tensor(0.0, device=device)
+    return model_loss, avg_oversample_loss
