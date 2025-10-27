@@ -4,13 +4,16 @@ import warnings
 
 import pandas as pd  # data manipulation
 import torch  # Deep learning framework
+
 _AUDIO_BACKEND = None
 try:
     from moviepy.editor import VideoFileClip
+
     _AUDIO_BACKEND = "moviepy"
 except Exception:
     try:
         from pydub import AudioSegment
+
         _AUDIO_BACKEND = "pydub"
     except Exception:
         _AUDIO_BACKEND = None
@@ -39,7 +42,9 @@ def transcribe_video(file_path):
                 clip.audio.reader.close_proc()
         elif _AUDIO_BACKEND == "pydub":
             # Fallback to pydub if moviepy is not available and pydub is installed
-            video_clip = AudioSegment.from_file(file_path, format="mp4")  # read video file
+            video_clip = AudioSegment.from_file(
+                file_path, format="mp4"
+            )  # read video file
             video_clip.export(audio_path, format="wav")  # convert to WAV
         else:
             raise RuntimeError(

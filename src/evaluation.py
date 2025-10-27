@@ -3,10 +3,16 @@ from typing import Dict
 
 import numpy as np
 import torch
+
 # Import necessary metrics from sklearn for evaluation
-from sklearn.metrics import (confusion_matrix, f1_score, matthews_corrcoef,
-                             multilabel_confusion_matrix, precision_score,
-                             recall_score)
+from sklearn.metrics import (
+    confusion_matrix,
+    f1_score,
+    matthews_corrcoef,
+    multilabel_confusion_matrix,
+    precision_score,
+    recall_score,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -29,7 +35,7 @@ class ClassificationBenchmark:
                 X_batch = X_batch.to(device)
                 y_batch = y_batch.to(device)
 
-                logits = model(X_batch)
+                logits, _ = model(X_batch)
 
                 # Move tensors to CPU and detach before converting to numpy
                 self.target.extend(y_batch.detach().cpu().numpy())

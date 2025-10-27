@@ -5,7 +5,7 @@ import torch
 
 from src.evaluation import evaluate_classification
 from src.models import RNNClassifier
-from src.training import get_dataloaders, train_rnn_text_classifier
+from src.training import get_dataloaders, train_rnn_text_classifier_with_deep_oversampling
 
 if __name__ == "__main__":
     # Parameters
@@ -15,24 +15,30 @@ if __name__ == "__main__":
     )  # Path to the labeled dataset
     batch_size = 64
     epochs = 30
-    learning_rate = 0.001
-    vocab_size = 30522  # Typical size for BERT tokenizer
-    embedding_dim = 128
+    learning_rate = 0.01
+    embedding_dim = 50
     hidden_dim = 256
-    num_classes = 3  # Adjust based on your dataset
+    num_classes = 3  # positive negative and neutral
     train = True  # Set to False to skip training and only evaluate
     # Device configuration: use GPU if available
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     # Load data
-    dataloader_train, dataloader_test = get_dataloaders(
-        json_path, batch_size=batch_size
+    dataloader_train, dataloader_test, minority_classes, vocab_size, weights_matrix, pad_idx = get_dataloaders(
+        json_path, batch_size=batch_size, embedding_dim=embedding_dim
     )
+    
     if train:
         # Initialize model
-        model = RNNClassifier(vocab_size, embedding_dim, hidden_dim, num_classes)
+        model = RNNClassifier(
+            embedding_dim=embedding_dim, 
+            hidden_dim=hidden_dim, 
+            weights_matrix=weights_matrix,
+            pad_idx=pad_idx,
+            num_classes=num_classes
+        )
         # Train model (the trainer will move the model to device)
-        trained_model = train_rnn_text_classifier(
-            model, dataloader_train, epochs=epochs, learning_rate=learning_rate
+        trained_model = train_rnn_text_classifier_with_deep_oversampling(
+            model, dataloader_train, epochs=epochs, learning_rate=learning_rate, minority_classes=minority_classes, dos_k=2, dos_lambda=200
         )
         # Move model to CPU before saving state dict to avoid CUDA tensors in checkpoint
         trained_model_cpu = trained_model.to(torch.device("cpu"))
@@ -43,7 +49,11 @@ if __name__ == "__main__":
     else:
         # Load the trained model
         trained_model = RNNClassifier(
-            vocab_size, embedding_dim, hidden_dim, num_classes
+            embedding_dim=embedding_dim, 
+            hidden_dim=hidden_dim, 
+            weights_matrix=weights_matrix,
+            pad_idx=pad_idx,
+            num_classes=num_classes
         )
         # Load with map_location to ensure correct device
         state = torch.load(
