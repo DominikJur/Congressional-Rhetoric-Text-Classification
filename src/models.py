@@ -24,7 +24,7 @@ class RNNClassifier(nn.Module):
         
         self.embedding = nn.Embedding.from_pretrained(
             weights_matrix, 
-            freeze=False,
+            freeze=True,
             padding_idx=pad_idx
         )
         
@@ -34,7 +34,6 @@ class RNNClassifier(nn.Module):
             num_layers=rnn_layers,
             batch_first=True,
             bidirectional=bidirectional,
-            dropout=dropout if rnn_layers > 1 else 0
         )
         
         self.dropout = nn.Dropout(dropout)

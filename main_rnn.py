@@ -6,7 +6,10 @@ import pandas as pd
 
 from src.evaluation import evaluate_classification
 from src.models import RNNClassifier
-from src.training import get_dataloaders, train_rnn_text_classifier_with_deep_oversampling, train_rnn_text_classifier_standard
+from src.training import get_dataloaders, train_rnn_text_classifier_standard
+import numpy as np
+np.random.seed(42)
+
 
 if __name__ == "__main__":
     # Parameters
@@ -14,22 +17,21 @@ if __name__ == "__main__":
     json_path = os.path.join(
         "data", "labeled_text_data.json"
     )  # Path to the labeled dataset
-    batch_size = 64
-    epochs = 200
-    learning_rate = 0.001
-    embedding_dim = 50
+    batch_size = 24
+    epochs = 100
+    learning_rate = 1e-4
+    embedding_dim = 100
     hidden_dim = 64
-    rnn_layers = 3
+    rnn_layers = 2
     num_classes = 3  # positive negative and neutral
     train = True  # Set to False to skip training and only evaluate
-    use_oversampling = False  # Whether to use deep oversampling
     # Device configuration: use GPU if available
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     # Load data
     dataloader_train, dataloader_test, minority_classes, vocab_size, weights_matrix, pad_idx = get_dataloaders(
         json_path, batch_size=batch_size, embedding_dim=embedding_dim
     )
-    model_name = f"rnn_{epochs}_epoch_{rnn_layers}_layers_{'deep_oversampling' if use_oversampling else 'standard'}.pth"
+    model_name = f"rnn_{epochs}_epoch_{rnn_layers}_layers_{hidden_dim}_dim_{embedding_dim}_emb_standard.pth"
     
     if train:
         # Initialize model
@@ -41,17 +43,10 @@ if __name__ == "__main__":
             num_classes=num_classes
         )
         # Train model (the trainer will move the model to device)
-        trained_model = train_rnn_text_classifier_with_deep_oversampling(
+        trained_model = train_rnn_text_classifier_standard(
             model, 
             dataloader_train, 
-            epochs=epochs, 
-            learning_rate=learning_rate, 
-            minority_classes=minority_classes, 
-            dos_k=5, 
-            dos_lambda=0
-        ) if use_oversampling else train_rnn_text_classifier_standard(
-            model, 
-            dataloader_train, 
+            dataloader_test,
             epochs=epochs, 
             learning_rate=learning_rate
         )
@@ -59,7 +54,7 @@ if __name__ == "__main__":
         trained_model_cpu = trained_model.to(torch.device("cpu"))
         torch.save(
             trained_model_cpu.state_dict(),
-            os.path.join("models", "rnn_text_classifier_lambda_0.pth"),
+            os.path.join("models", model_name),
         )
     else:
         # Load the trained model
@@ -70,13 +65,9 @@ if __name__ == "__main__":
             rnn_layers=rnn_layers,
             num_classes=num_classes
         )
-        # Load with map_location to ensure correct device
-        performance = pd.read_csv('performance.csv')
-        performance.sort_values('f1', ascending=False, inplace=True)
-        best_model = performance.iloc[0]['name']
-
+  
         state = torch.load(
-            os.path.join("models", best_model), map_location=device
+            os.path.join("models", model_name), map_location=device
         )
         trained_model.load_state_dict(state)
         trained_model = trained_model.to(device)
@@ -88,12 +79,4 @@ if __name__ == "__main__":
     for metric, value in metrics.items():
         print(f"{metric}: {value}" if metric != "confusion_matrix" else f"{metric}:\n{value}")
 
-    if train:
-        # append performance to csv
-        if not os.path.exists('performance.csv'):
-            performance = pd.DataFrame(columns=['name', 'f1'])
-            performance.to_csv('performance.csv', index=False)
-        performance = pd.read_csv('performance.csv')
-        f1_score = metrics['f1']
-        performance.loc[len(performance)] = {'name': model_name, 'f1': f1_score}
-        performance.to_csv('performance.csv', index=False)
+    

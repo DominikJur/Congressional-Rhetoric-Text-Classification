@@ -13,6 +13,7 @@ from plotly.subplots import make_subplots
 import numpy as np  # for numerical operations
 from collections import Counter  # for counting word frequencies
 
+from src.evaluation import evaluate_classification
 from src.models import RNNClassifier  # Import the RNNClassifier class from models.py
 import plotly.express as px  # for visualizations
 from nltk.corpus import stopwords
@@ -115,6 +116,7 @@ def get_dataloaders(
 def train_rnn_text_classifier_standard(
     model,
     dataloader_train,
+    dataloader_test=None,
     epochs=100,
     learning_rate=0.001,
 ):
@@ -131,29 +133,19 @@ def train_rnn_text_classifier_standard(
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()  # suitable for multi-class classification
-    embedding_params = model.embedding.parameters()
-    
-    # rest of the model's parameters
-    rnn_params = [
-        p for n, p in model.named_parameters() 
-        if "embedding" not in n and p.requires_grad
-    ]
+   
     optimizer = optim.AdamW(
-        [
-            {'params': rnn_params, 'lr': learning_rate}, # e.g., 0.001
-            {'params': embedding_params, 'lr': learning_rate / 20} # e.g., 0.00005
-        ],
+        model.parameters(), lr=learning_rate,
         weight_decay=0.01
     ) # Adam optimizer, state of the art
 
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.1)
     model_loss_history = []
-
+    validation_loss_history = []
     # Training loop
-    model.train()
     for epoch in range(epochs):
         total_model_loss = 0.0
-
+        model.train()
         for inputs, targets in tqdm.tqdm(
             dataloader_train, desc=f"Training Epoch {epoch+1}/{epochs}"
         ):
@@ -165,7 +157,6 @@ def train_rnn_text_classifier_standard(
             outputs, deep_features = model(inputs)  # forward pass
             model_loss = criterion(outputs, targets)  # compute loss
 
-            model_loss_history.append(model_loss.item())
 
             model_loss.backward()  # backward pass
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # gradient clipping
@@ -177,65 +168,58 @@ def train_rnn_text_classifier_standard(
             f"Epoch {epoch+1}/{epochs}, "
             f"Class Loss: {total_model_loss / len(dataloader_train):.4f}"
         )
+        if (epoch + 1) % 5 == 0:
+            model_loss_history.append(total_model_loss / len(dataloader_train))
+
         scheduler.step()  # update learning rate
+        if dataloader_test is not None and (epoch + 1) % 5 == 0:
+            # Evaluate the model on the test set
+            model.eval()
+            total_val_loss = 0.0
+            with torch.no_grad():
+                for val_inputs, val_targets in dataloader_test:
+                    val_inputs = val_inputs.to(device)
+                    val_targets = val_targets.to(device)
 
+                    val_outputs, _ = model(val_inputs)
+                    val_loss = criterion(val_outputs, val_targets)
+                    total_val_loss += val_loss.item()
 
-    plot_loss_curves(model_loss_history)
+            validation_loss_history.append(total_val_loss / len(dataloader_test))
+            print(
+                f"Validation Loss after Epoch {epoch+1}: "
+                f"{total_val_loss / len(dataloader_test):.4f}"
+            )
+
+    if dataloader_test is not None:
+        plot_loss_curves(model_loss_history, validation_loss_history)
 
     return model
 
 
 
-def plot_loss_curves(model_loss_history, oversample_loss_history=[]):
+
+def plot_loss_curves(model_loss_history, validation_loss_history=[]):
     """
     Plots the loss curves as two separate subplots (no shared y-axis).
     Args:
         model_loss_history: List of model loss values over training iterations.
-        oversample_loss_history: List of oversampling loss values over training iterations.
+        validation_loss_history: List of validation loss values over training iterations.
     """
-    iterations = list(range(len(model_loss_history)))
-    if len(iterations) > 100:
-        iterations = iterations[::5]
-        model_loss_history = model_loss_history[::5]
-        oversample_loss_history = oversample_loss_history[::5]
-    if not oversample_loss_history:
-        fig = px.line(
-            x=iterations, y=model_loss_history,
-            labels={'x': 'Iteration', 'y': 'Loss'},
-        )
-        fig.update_xaxes(title_text="Iteration")
-        fig.update_yaxes(title_text="Loss")
-        
-    else:
-        import plotly.graph_objects as go
-
-        fig = make_subplots(
-            rows=2,
-            cols=1,
-            shared_yaxes=False,
-            vertical_spacing=0.3,
-            subplot_titles=("Model Loss", "Oversampling Loss"),
-        )
-
-        fig.add_trace(
-            go.Scatter(x=iterations, y=model_loss_history, mode="lines", name="Model Loss"),
-            row=1,
-            col=1,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=iterations, y=oversample_loss_history, mode="lines", name="Oversampling Loss"
-            ),
-            row=2,
-            col=1,
-        )
-
-        fig.update_xaxes(title_text="Iteration", row=1, col=1)
-        fig.update_xaxes(title_text="Iteration", row=2, col=1)
-        fig.update_yaxes(title_text="Loss", row=1, col=1)
-        fig.update_yaxes(title_text="Loss", row=2, col=1)
-
-    fig.update_layout(title_text="Training Loss Curves", height=600, showlegend=False)
+    iterations = [5*i for i in range(len(model_loss_history))]
+    df = pd.DataFrame({
+        "Iteration": iterations,
+        "Model Loss": model_loss_history,
+        "Validation Loss": validation_loss_history
+    })
+    fig = px.line(
+        df,
+        x="Iteration",
+        y=["Model Loss", "Validation Loss"],
+        labels={"value": "Loss", "variable": "Loss Type"},
+        title="Training and Validation Loss Curves",
+        markers=True
+    )
     fig.show()
     return fig
 
@@ -252,6 +236,7 @@ We ended up not using it so you can safely ignore it.
 def train_rnn_text_classifier_with_deep_oversampling(
     model,
     dataloader_train,
+    dataloader_test=None,
     minority_classes=[],
     dos_k=5,
     dos_lambda=200,
@@ -290,14 +275,15 @@ def train_rnn_text_classifier_with_deep_oversampling(
     ]
     optimizer = optim.AdamW(
         [
-            {'params': rnn_params, 'lr': learning_rate}, # e.g., 0.001
-            {'params': embedding_params, 'lr': learning_rate / 20} # e.g., 0.00005
+            {'params': rnn_params, 'lr': learning_rate}, 
+            {'params': embedding_params, 'lr': learning_rate / 20}
         ],
         weight_decay=0.01
     ) # Adam optimizer, state of the art
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
     model_loss_history = []
-    oversample_loss_history = []
+    validation_loss_history = []
+
 
 
     # Training loop
@@ -325,8 +311,6 @@ def train_rnn_text_classifier_with_deep_oversampling(
                 model_loss, deep_features, targets, minority_classes, k=dos_k, lambda_coeff=dos_lambda
             )
 
-            model_loss_history.append(model_loss.item())
-            oversample_loss_history.append(avg_oversample_loss.item())
 
             loss.backward()  # backward pass
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # gradient clipping
@@ -341,9 +325,30 @@ def train_rnn_text_classifier_with_deep_oversampling(
             f"DOS Loss: {total_oversample_loss / len(dataloader_train):.4f}"
         )
         scheduler.step()  # update learning rate
+        
+        if (epoch + 1) % 5 == 0:
+            model_loss_history.append(model_loss.item())
 
+        if dataloader_test is not None and (epoch + 1) % 5 == 0:
+            # Evaluate the model on the test set
+            model.eval()
+            total_val_loss = 0.0
+            with torch.no_grad():
+                for val_inputs, val_targets in dataloader_test:
+                    val_inputs = val_inputs.to(device)
+                    val_targets = val_targets.to(device)
 
-    plot_loss_curves(model_loss_history, oversample_loss_history)
+                    val_outputs, _ = model(val_inputs)
+                    val_loss = criterion(val_outputs, val_targets)
+                    total_val_loss += val_loss.item()
+
+            validation_loss_history.append(total_val_loss / len(dataloader_test))
+            print(
+                f"Validation Loss after Epoch {epoch+1}: "
+                f"{total_val_loss / len(dataloader_test):.4f}"
+            )
+            model.train()
+    plot_loss_curves(model_loss_history, validation_loss_history)
 
     return model
 
